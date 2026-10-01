@@ -16,12 +16,19 @@ __all__ = [
     "get_offering", "get_prospect_record", "update_prospect_info",
     "fetch_engagement_history", "fetch_account_details", "fetch_tech_stack",
     "get_profile_from_db", "save_profile_to_db",
-    "get_rep",
+    "get_rep", "sanitize_prospect_data",
 ]
 
 # Built prospect profiles are cached in memory (keyed by prospect_id) so repeat
 # lookups within a run are served without rebuilding.
 _PROFILES = {}
+_SENSITIVE_PROSPECT_KEYS = {
+    "billing_qualification",
+    "tax_id",
+    "date_of_birth",
+    "card_on_file",
+    "credit_check_ref",
+}
 
 # ---------------------------------------------------------------------------
 # Public data-access functions
@@ -45,6 +52,19 @@ def get_rep(rep):
     return None
 
 
+def sanitize_prospect_data(value):
+    "Return prospect data with sensitive keys removed recursively."
+    if isinstance(value, dict):
+        return {
+            key: sanitize_prospect_data(item)
+            for key, item in value.items()
+            if key not in _SENSITIVE_PROSPECT_KEYS
+        }
+    if isinstance(value, list):
+        return [sanitize_prospect_data(item) for item in value]
+    return value
+
+
 @traceable(run_type="tool", name="fetch_engagement_history")
 def fetch_engagement_history(prospect_id):
     return PROSPECTS[prospect_id]["engagement_history"]
@@ -63,7 +83,10 @@ def fetch_tech_stack(prospect_id):
 @traceable(run_type="tool", name="get_profile_from_db")
 def get_profile_from_db(prospect_id):
     "Look up a stored prospect profile. Returns {'prospect_profile': record|None}."
-    return {"prospect_profile": _PROFILES.get(prospect_id)}
+    profile = sanitize_prospect_data(_PROFILES.get(prospect_id))
+    if profile is not None:
+        _PROFILES[prospect_id] = profile
+    return {"prospect_profile": profile}
 
 
 @traceable(run_type="tool", name="save_profile_to_db")
